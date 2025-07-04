@@ -1,8 +1,12 @@
 {
-  "name": "apidocmcp",
-  "version": "0.1.0",
-  "description": "API文档管理系统，基于MCP协议（精简版本）",
+  "name": "code-doc-mcp",
+  "version": "0.3.0",
+  "description": "代码文档管理系统，基于MCP协议（精简版本）",
   "main": "src/index.js",
+  "bin": {
+    "code-doc-mcp": "src/index.js",
+    "code-doc-mcp-web": "src/web-server.js"
+  },
   "scripts": {
     "start": "node src/index.js",
     "start:web": "node src/web-server.js",
@@ -30,5 +34,10 @@
   },
   "devDependencies": {
     "nodemon": "^2.0.22"
-  }
+  },
+  "files": [
+    "src/**/*",
+    "README.md",
+    "LICENSE"
+  ]
 }

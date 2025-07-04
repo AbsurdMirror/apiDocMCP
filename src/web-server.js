@@ -1,3 +1,4 @@
+#!/usr/bin/env node
 // src/web-server.js - Web服务器独立入口
 const { WebServer } = require('./web');
 const { Command } = require('commander');
@@ -36,5 +37,6 @@ Web服务器已启动:
 - Web服务器运行在端口 ${config.port}
 - 数据目录: ${config.dataDir}
 - 文档目录: ${config.docsDir}
-- localhost:${config.port}
+
+在浏览器中访问: http://localhost:${config.port}
 `);

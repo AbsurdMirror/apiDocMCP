@@ -52,6 +52,25 @@ npm start
 
 默认情况下，MCP服务器将在端口3000上运行，Web界面将在端口8080上运行。
 
+### 通过npx启动
+
+安装包后，可以通过npx直接启动：
+
+```bash
+# 启动MCP服务器
+npx code-doc-mcp
+
+# 启动Web服务器
+npx code-doc-mcp-web
+```
+
+也可以传递配置参数：
+
+```bash
+npx code-doc-mcp --port 3001 --web-port 8081 --data-dir ./custom-data --docs-dir ./custom-docs
+npx code-doc-mcp-web --port 8081 --data-dir ./custom-data --docs-dir ./custom-docs
+```
+
 ### 配置选项
 
 #### 环境变量

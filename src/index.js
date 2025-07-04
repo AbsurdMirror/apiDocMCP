@@ -1,3 +1,4 @@
+#!/usr/bin/env node
 // src/index.js - MCP服务器入口
 const McpServer = require('./server');
 const { SyncEngine } = require('./sync');
