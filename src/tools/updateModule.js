@@ -8,7 +8,8 @@ const updateModule = {
   name: 'updateModule',
   description: '更新现有的API模块',
   inputSchema: {
-    moduleId: z.string().describe('要更新的模块ID'),
+    moduleId: z.string().optional().describe('要更新的模块ID'),
+    modulePath: z.string().optional().describe('要更新的模块路径（格式如"aaa/bbb"）'),
     moduleName: z.string().optional().describe('模块的新名称（可选）'),
     description: z.string().optional().describe('模块的新描述（可选）')
   },
@@ -17,21 +18,32 @@ const updateModule = {
       // 获取配置信息
       const config = context.serverContext.config || {};
       
-      // 1. 检查模块是否存在
       const storage = new StorageManager(config);
-      const existingModule = await storage.getModule(input.moduleId);
-      
-      if (!existingModule) {
+      let moduleId;
+
+      if (input.modulePath) {
+        moduleId = await storage.resolveModulePath(input.modulePath);
+      } else if (input.moduleId) {
+        moduleId = input.moduleId;
+      } else {
+        throw new Error('必须提供moduleId或modulePath');
+      }
+
+      if (!moduleId) {
         return {
           content: [{
             type: "text",
             text: JSON.stringify({
               success: false,
-              message: `模块不存在: ${input.moduleId}`
+              message: `模块不存在`
             })
           }]
         };
       }
+
+      const existingModule = await storage.getModule(moduleId);
+      
+
       
       // 2. 更新模块记录
       const updateData = {};
@@ -45,25 +57,25 @@ const updateModule = {
             type: "text",
             text: JSON.stringify({
               success: true,
-              moduleId: input.moduleId,
+              moduleId: moduleId,
               message: '没有提供更新字段，模块保持不变'
             })
           }]
         };
       }
       
-      await storage.updateModule(input.moduleId, updateData);
+      await storage.updateModule(moduleId, updateData);
       
       // 3. 同步文档
       const syncEngine = new SyncEngine(config);
-      await syncEngine.syncModule(input.moduleId);
+      await syncEngine.syncModule(moduleId);
       
       return {
         content: [{
           type: "text",
           text: JSON.stringify({
             success: true,
-            moduleId: input.moduleId,
+            moduleId: moduleId,
             message: '模块更新成功'
           })
         }]

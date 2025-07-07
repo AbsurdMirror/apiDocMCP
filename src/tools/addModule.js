@@ -9,7 +9,8 @@ const addModule = {
   description: '创建新的API模块',
   inputSchema: {
     moduleName: z.string().describe('模块名称'),
-    description: z.string().describe('模块描述')
+    description: z.string().describe('模块描述'),
+    parentModulePath: z.string().optional().describe('父模块路径（可选，格式如"aaa/bbb"）')
   },
   async handler(input, context) {
     try {
@@ -18,7 +19,18 @@ const addModule = {
       
       // 1. 创建模块记录
       const storage = new StorageManager(config);
-      const moduleId = await storage.createModule(input);
+      let moduleId;
+
+      if (input.parentModulePath) {
+        const parentModule = await storage.getModuleByPath(input.parentModulePath);
+        if (!parentModule) {
+          throw new Error(`父模块不存在: ${input.parentModulePath}`);
+        }
+        // The createSubModule method needs to be implemented in storage
+        moduleId = await storage.createSubModule(parentModule.moduleId, input);
+      } else {
+        moduleId = await storage.createModule(input);
+      }
       
       // 2. 生成Markdown文档
       const docGen = new DocumentGenerator(config);

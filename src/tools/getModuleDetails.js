@@ -6,7 +6,8 @@ const getModuleDetails = {
   name: 'getModuleDetails',
   description: '获取指定模块的详细信息',
   inputSchema: {
-    moduleId: z.string().describe('要获取详情的模块ID')
+    moduleId: z.string().optional().describe('要获取详情的模块ID'),
+    modulePath: z.string().optional().describe('要获取详情的模块路径（格式如"aaa/bbb"）')
   },
   async handler(input, context) {
     try {
@@ -15,7 +16,15 @@ const getModuleDetails = {
       
       // 获取模块详情
       const storage = new StorageManager(config);
-      const module = await storage.getModule(input.moduleId);
+      let module;
+
+      if (input.modulePath) {
+        module = await storage.getModuleByPath(input.modulePath);
+      } else if (input.moduleId) {
+        module = await storage.getModule(input.moduleId);
+      } else {
+        throw new Error('必须提供moduleId或modulePath');
+      }
       
       if (!module) {
         return {
@@ -23,11 +32,13 @@ const getModuleDetails = {
             type: "text",
             text: JSON.stringify({
               success: false,
-              message: `模块不存在: ${input.moduleId}`
+              message: `模块不存在`
             })
           }]
         };
       }
+      
+
       
       return {
         content: [{

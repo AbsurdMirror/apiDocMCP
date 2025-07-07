@@ -36,6 +36,7 @@ class FileStorage {
       moduleName: moduleData.moduleName,
       description: moduleData.description,
       apis: [],
+      subModules: [], // 新增：子模块列表
       createdAt: now,
       updatedAt: now
     };
@@ -76,6 +77,8 @@ class FileStorage {
       const updatedModule = {
         ...existingModule,
         ...moduleData,
+        // 确保子模块列表不被覆盖
+        subModules: existingModule.subModules || [],
         updatedAt: new Date().toISOString()
       };
       
@@ -231,6 +234,171 @@ class FileStorage {
       }
       throw error;
     }
+  }
+
+  async resolveModulePath(modulePath) {
+    const pathSegments = modulePath.split('/').filter(p => p);
+    if (pathSegments.length === 0) {
+      return null; // Invalid path
+    }
+
+    // 1. Find the root module
+    const index = JSON.parse(await fs.readFile(this.indexFile, 'utf8'));
+    const rootModuleInfo = index.modules.find(m => m.moduleName === pathSegments[0]);
+
+    if (!rootModuleInfo) {
+      return null; // Root module not found
+    }
+
+    let currentModuleId = rootModuleInfo.moduleId;
+
+    // 2. Traverse sub-modules
+    for (let i = 1; i < pathSegments.length; i++) {
+      const segment = pathSegments[i];
+      const currentModule = await this.getModule(currentModuleId);
+      if (!currentModule || !currentModule.subModules) {
+        return null; // Parent module not found or has no sub-modules
+      }
+
+      const subModuleInfo = currentModule.subModules.find(sm => sm.moduleName === segment);
+      if (!subModuleInfo) {
+        return null; // Sub-module not found
+      }
+      currentModuleId = subModuleInfo.moduleId;
+    }
+
+    return currentModuleId;
+  }
+
+  async getModuleByPath(modulePath) {
+    const moduleId = await this.resolveModulePath(modulePath);
+    if (!moduleId) {
+      return null;
+    }
+    return this.getModule(moduleId);
+  }
+
+  async createSubModule(parentModuleId, moduleData) {
+    // 检查父模块是否存在
+    const parentModule = await this.getModule(parentModuleId);
+    if (!parentModule) {
+      throw new Error(`父模块不存在: ${parentModuleId}`);
+    }
+    
+    // 创建子模块
+    const moduleId = uuidv4();
+    const now = new Date().toISOString();
+    
+    const module = {
+      moduleId,
+      moduleName: moduleData.moduleName,
+      description: moduleData.description,
+      apis: [],
+      subModules: [],
+      parentModuleId, // 记录父模块ID
+      createdAt: now,
+      updatedAt: now
+    };
+    
+    // 写入子模块文件
+    const moduleFile = path.join(this.modulesDir, `${moduleId}.json`);
+    await fs.writeFile(moduleFile, JSON.stringify(module, null, 2));
+    
+    // 更新父模块的子模块列表
+    parentModule.subModules = parentModule.subModules || [];
+    parentModule.subModules.push({
+      moduleId,
+      moduleName: moduleData.moduleName
+    });
+    parentModule.updatedAt = now;
+    
+    // 保存父模块
+    const parentModuleFile = path.join(this.modulesDir, `${parentModuleId}.json`);
+    await fs.writeFile(parentModuleFile, JSON.stringify(parentModule, null, 2));
+    
+    return moduleId;
+  }
+
+  async removeSubModule(parentModuleId, subModuleId) {
+    // 检查父模块是否存在
+    const parentModule = await this.getModule(parentModuleId);
+    if (!parentModule) {
+      throw new Error(`父模块不存在: ${parentModuleId}`);
+    }
+    
+    // 检查子模块是否存在
+    const subModule = await this.getModule(subModuleId);
+    if (!subModule) {
+      throw new Error(`子模块不存在: ${subModuleId}`);
+    }
+    
+    // 检查子模块是否属于父模块
+    const subModuleIndex = parentModule.subModules.findIndex(m => m.moduleId === subModuleId);
+    if (subModuleIndex === -1) {
+      throw new Error(`子模块不属于指定的父模块: ${subModuleId}`);
+    }
+    
+    // 从父模块的子模块列表中移除
+    parentModule.subModules.splice(subModuleIndex, 1);
+    parentModule.updatedAt = new Date().toISOString();
+    
+    // 保存父模块
+    const parentModuleFile = path.join(this.modulesDir, `${parentModuleId}.json`);
+    await fs.writeFile(parentModuleFile, JSON.stringify(parentModule, null, 2));
+    
+    // 更新子模块，移除父模块引用
+    delete subModule.parentModuleId;
+    subModule.updatedAt = parentModule.updatedAt;
+    
+    // 保存子模块
+    const subModuleFile = path.join(this.modulesDir, `${subModuleId}.json`);
+    await fs.writeFile(subModuleFile, JSON.stringify(subModule, null, 2));
+    
+    return true;
+  }
+
+  async moveSubModule(subModuleId, newParentModuleId) {
+    // 检查子模块是否存在
+    const subModule = await this.getModule(subModuleId);
+    if (!subModule) {
+      throw new Error(`子模块不存在: ${subModuleId}`);
+    }
+    
+    // 检查新父模块是否存在
+    const newParentModule = await this.getModule(newParentModuleId);
+    if (!newParentModule) {
+      throw new Error(`新父模块不存在: ${newParentModuleId}`);
+    }
+    
+    // 如果子模块有当前父模块，先从当前父模块中移除
+    if (subModule.parentModuleId) {
+      await this.removeSubModule(subModule.parentModuleId, subModuleId);
+    }
+    
+    // 添加到新父模块
+    const now = new Date().toISOString();
+    
+    // 更新子模块，设置新父模块引用
+    subModule.parentModuleId = newParentModuleId;
+    subModule.updatedAt = now;
+    
+    // 保存子模块
+    const subModuleFile = path.join(this.modulesDir, `${subModuleId}.json`);
+    await fs.writeFile(subModuleFile, JSON.stringify(subModule, null, 2));
+    
+    // 更新新父模块的子模块列表
+    newParentModule.subModules = newParentModule.subModules || [];
+    newParentModule.subModules.push({
+      moduleId: subModuleId,
+      moduleName: subModule.moduleName
+    });
+    newParentModule.updatedAt = now;
+    
+    // 保存新父模块
+    const newParentModuleFile = path.join(this.modulesDir, `${newParentModuleId}.json`);
+    await fs.writeFile(newParentModuleFile, JSON.stringify(newParentModule, null, 2));
+    
+    return true;
   }
 }
 
