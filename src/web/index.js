@@ -43,9 +43,11 @@ class WebServer {
     
     this.app.get('/docs/modules/:moduleName', async (req, res) => {
       try {
-        const modulePath = path.join(this.docsDir, 'modules', `${req.params.moduleName}.md`);
+        // URL解码模块名
+        const decodedModuleName = decodeURIComponent(req.params.moduleName);
+        const modulePath = path.join(this.docsDir, 'modules', `${decodedModuleName}.md`);
         const content = await fs.readFile(modulePath, 'utf8');
-        res.send(this.renderMarkdown(content, `模块: ${req.params.moduleName}`));
+        res.send(this.renderMarkdown(content, `模块: ${decodedModuleName}`));
       } catch (error) {
         res.status(404).send(this.renderError('模块文档不存在'));
       }
@@ -53,9 +55,12 @@ class WebServer {
     
     this.app.get('/docs/apis/:moduleName/:apiName', async (req, res) => {
       try {
-        const apiPath = path.join(this.docsDir, 'apis', req.params.moduleName, `${req.params.apiName}.md`);
+        // URL解码模块名和API名
+        const decodedModuleName = decodeURIComponent(req.params.moduleName);
+        const decodedApiName = decodeURIComponent(req.params.apiName);
+        const apiPath = path.join(this.docsDir, 'apis', decodedModuleName, `${decodedApiName}.md`);
         const content = await fs.readFile(apiPath, 'utf8');
-        res.send(this.renderMarkdown(content, `API: ${req.params.apiName}`));
+        res.send(this.renderMarkdown(content, `API: ${decodedApiName}`));
       } catch (error) {
         res.status(404).send(this.renderError('API文档不存在'));
       }
@@ -76,7 +81,7 @@ class WebServer {
         const results = {
           modules: modules.map(m => ({
             name: m.moduleName,
-            url: `/docs/modules/${m.moduleName}`,
+            url: `/docs/modules/${encodeURIComponent(m.moduleName)}`,
             type: '模块'
           })),
           apis: []
@@ -90,7 +95,7 @@ class WebServer {
               // 将找到的API添加到结果中
               results.apis.push(...apis.map(api => ({
                 name: api.apiName,
-                url: `/docs/apis/${module.moduleName}/${api.apiName}`,
+                url: `/docs/apis/${encodeURIComponent(module.moduleName)}/${encodeURIComponent(api.apiName)}`,
                 type: 'API',
                 module: module.moduleName
               })));
@@ -155,17 +160,42 @@ class WebServer {
   processMarkdownLinks(content) {
     // 处理首页到模块的链接 [模块名](modules/模块名.md) -> [模块名](/docs/modules/模块名)
     let processedContent = content.replace(/\[([^\]]+)\]\(modules\/([^\)]+)\.md\)/g, (match, text, moduleName) => {
-      return `[${text}](/docs/modules/${moduleName})`;
+      return `[${text}](/docs/modules/${encodeURIComponent(moduleName)})`;
+    });
+    
+    // 处理首页到模块的链接（不带.md后缀） [模块名](modules/模块名) -> [模块名](/docs/modules/模块名)
+    processedContent = processedContent.replace(/\[([^\]]+)\]\(modules\/([^\)]+)\)(?!\.md)/g, (match, text, moduleName) => {
+      return `[${text}](/docs/modules/${encodeURIComponent(moduleName)})`;
     });
     
     // 处理模块文档中到API的链接 [API名称](../apis/模块名/API名.md) -> [API名称](/docs/apis/模块名/API名)
-    processedContent = processedContent.replace(/\[([^\]]+)\]\(\.\.\/apis\/([^\)\/]+)\/([^\)]+)\.md\)/g, (match, text, moduleName, apiName) => {
-      return `[${text}](/docs/apis/${moduleName}/${apiName})`;
+    // 使用非贪婪匹配来处理包含括号的路径
+    processedContent = processedContent.replace(/\[([^\]]+)\]\(\.\.\/apis\/(.*?)\.md\)/g, (match, text, fullPath) => {
+      // 手动分割路径来获取模块名和API名
+      const lastSlashIndex = fullPath.lastIndexOf('/');
+      if (lastSlashIndex === -1) {
+        return match; // 返回原始匹配
+      }
+      
+      const moduleName = fullPath.substring(0, lastSlashIndex);
+      const apiName = fullPath.substring(lastSlashIndex + 1);
+      
+      return `[${text}](/docs/apis/${encodeURIComponent(moduleName)}/${encodeURIComponent(apiName)})`;
+    });
+    
+    // 处理模块文档中到API的链接（不带.md后缀） [API名称](../apis/模块名/API名) -> [API名称](/docs/apis/模块名/API名)
+    processedContent = processedContent.replace(/\[([^\]]+)\]\(\.\.\/apis\/([^\)]+?)\/([^\)]+)\)(?!\.md)/g, (match, text, moduleName, apiName) => {
+      return `[${text}](/docs/apis/${encodeURIComponent(moduleName)}/${encodeURIComponent(apiName)})`;
     });
     
     // 处理API文档中到模块的链接 [模块名](../../modules/模块名.md) -> [模块名](/docs/modules/模块名)
     processedContent = processedContent.replace(/\[([^\]]+)\]\(\.\.\/\.\.\/modules\/([^\)]+)\.md\)/g, (match, text, moduleName) => {
-      return `[${text}](/docs/modules/${moduleName})`;
+      return `[${text}](/docs/modules/${encodeURIComponent(moduleName)})`;
+    });
+    
+    // 处理API文档中到模块的链接（不带.md后缀） [模块名](../../modules/模块名) -> [模块名](/docs/modules/模块名)
+    processedContent = processedContent.replace(/\[([^\]]+)\]\(\.\.\/\.\.\/modules\/([^\)]+)\)(?!\.md)/g, (match, text, moduleName) => {
+      return `[${text}](/docs/modules/${encodeURIComponent(moduleName)})`;
     });
     
     return processedContent;
@@ -193,14 +223,17 @@ class WebServer {
     } else if (title.startsWith('API: ')) {
       // API页面
       const apiName = title.replace('API: ', '');
-      // 从内容中尝试提取模块名
-      const moduleMatch = content.match(/\[([^\]]+)\]\(\.\.\/\.\.\/modules\/([^\)]+)\.md\)/);
+      // 从内容中尝试提取模块名（支持带.md和不带.md后缀的格式）
+      let moduleMatch = content.match(/\[([^\]]+)\]\(\.\.\/\.\.\/modules\/([^\)]+)\.md\)/);
+      if (!moduleMatch) {
+        moduleMatch = content.match(/\[([^\]]+)\]\(\.\.\/\.\.\/modules\/([^\)]+)\)/);
+      }
       const moduleName = moduleMatch ? moduleMatch[2] : '未知模块';
       
       breadcrumbs = `
         <a class="breadcrumb-item" href="/docs">首页</a>
         <span class="breadcrumb-separator">/</span>
-        <a class="breadcrumb-item" href="/docs/modules/${moduleName}">${moduleName}</a>
+        <a class="breadcrumb-item" href="/docs/modules/${encodeURIComponent(moduleName)}">${moduleName}</a>
         <span class="breadcrumb-separator">/</span>
         <span class="breadcrumb-item current">${apiName}</span>
       `;
