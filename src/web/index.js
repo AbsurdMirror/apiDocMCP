@@ -24,6 +24,11 @@ class WebServer {
     this.app.get('/api/modules/:moduleId', this.getModule.bind(this));
     this.app.get('/api/modules/:moduleId/apis', this.listApis.bind(this));
     this.app.get('/api/apis/:apiId', this.getApi.bind(this));
+
+    // 添加支持模块路径的路由
+    this.app.get('/api/module-path/*', this.getModuleByPath.bind(this));
+    this.app.get('/api/module-path/*/apis', this.listApisByPath.bind(this));
+    this.app.get('/api/module-path/*/submodules', this.listSubModules.bind(this));
     
     // 前端路由
     this.app.get('/', (req, res) => {
@@ -118,6 +123,77 @@ class WebServer {
     try {
       const modules = await this.storage.listModules(req.query);
       res.json(modules);
+    } catch (error) {
+      res.status(500).json({ error: error.message });
+    }
+  }
+
+  // 添加通过路径获取模块的方法
+  async getModuleByPath(req, res) {
+    try {
+      // 从URL中提取模块路径
+      const modulePath = req.params[0];
+      
+      // 获取模块
+      const module = await this.storage.getModuleByPath(modulePath);
+      if (!module) {
+        return res.status(404).json({ error: '模块不存在' });
+      }
+      
+      res.json(module);
+    } catch (error) {
+      res.status(500).json({ error: error.message });
+    }
+  }
+
+  // 添加通过路径列出API的方法
+  async listApisByPath(req, res) {
+    try {
+      // 从URL中提取模块路径
+      const modulePath = req.params[0];
+      
+      // 解析模块路径获取模块ID
+      const moduleId = await this.storage.resolveModulePath(modulePath);
+      if (!moduleId) {
+        return res.status(404).json({ error: '模块不存在' });
+      }
+      
+      // 获取API列表
+      const apis = await this.storage.listApis(moduleId, req.query);
+      res.json(apis);
+    } catch (error) {
+      res.status(500).json({ error: error.message });
+    }
+  }
+
+  // 添加列出子模块的方法
+  async listSubModules(req, res) {
+    try {
+      // 从URL中提取模块路径
+      const modulePath = req.params[0];
+      
+      // 获取模块
+      const module = await this.storage.getModuleByPath(modulePath);
+      if (!module) {
+        return res.status(404).json({ error: '模块不存在' });
+      }
+      
+      // 获取子模块详情
+      const subModules = await Promise.all(
+        (module.subModules || []).map(async (subModule) => {
+          const fullModule = await this.storage.getModule(subModule.moduleId);
+          return {
+            moduleId: subModule.moduleId,
+            moduleName: fullModule.moduleName,
+            description: fullModule.description
+          };
+        })
+      );
+      
+      res.json({
+        subModules,
+        count: subModules.length
+      });
     } catch (error) {
       res.status(500).json({ error: error.message });
     }

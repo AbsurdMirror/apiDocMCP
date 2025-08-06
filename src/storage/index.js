@@ -48,6 +48,26 @@ class StorageManager {
   async listApis(moduleId, filter = {}) {
     return this.storage.listApis(moduleId, filter);
   }
+
+  async resolveModulePath(modulePath) {
+    return this.storage.resolveModulePath(modulePath);
+  }
+
+  async getModuleByPath(modulePath) {
+    return this.storage.getModuleByPath(modulePath);
+  }
+
+  async createSubModule(parentModuleId, moduleData) {
+    return this.storage.createSubModule(parentModuleId, moduleData);
+  }
+
+  async removeSubModule(parentModuleId, subModuleId) {
+    return this.storage.removeSubModule(parentModuleId, subModuleId);
+  }
+
+  async moveSubModule(subModuleId, newParentModuleId) {
+    return this.storage.moveSubModule(subModuleId, newParentModuleId);
+  }
 }
 
 module.exports = { StorageManager };

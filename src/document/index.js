@@ -21,108 +21,140 @@ class DocumentGenerator {
     await fs.mkdir(this.apisDir, { recursive: true });
   }
 
-  async generateModuleDoc(moduleId) {
-    // 获取模块数据
+  async generateModuleDoc(moduleId, parentPath = '') {
     const module = await this.storage.getModule(moduleId);
     if (!module) {
       throw new Error(`模块不存在: ${moduleId}`);
     }
-    
-    // 生成模块文档
-    const markdown = this.generateModuleMarkdown(module);
-    
-    // 确保模块的API目录存在
-    const moduleApiDir = path.join(this.apisDir, module.moduleName);
-    await fs.mkdir(moduleApiDir, { recursive: true });
-    
-    // 写入文件
-    const docFile = path.join(this.modulesDir, `${module.moduleName}.md`);
+
+    const currentPath = path.join(parentPath, module.moduleName);
+    const markdown = await this.generateModuleMarkdown(module, parentPath);
+
+    const moduleDocDir = path.join(this.modulesDir, parentPath);
+    await fs.mkdir(moduleDocDir, { recursive: true });
+
+    const docFile = path.join(moduleDocDir, `${module.moduleName}.md`);
     await fs.writeFile(docFile, markdown);
-    
-    // 更新索引页
-    await this.updateIndexPage();
-    
+
+    if (module.subModules && module.subModules.length > 0) {
+      for (const subModuleInfo of module.subModules) {
+        await this.generateModuleDoc(subModuleInfo.moduleId, currentPath);
+      }
+    }
+
+    // Only update index for top-level calls
+    if (parentPath === '') {
+        await this.updateIndexPage();
+    }
+
     return docFile;
   }
 
-  generateModuleMarkdown(module) {
-    return `# ${module.displayName || module.moduleName}
+  async generateModuleMarkdown(module, parentPath) {
+    const modulePath = path.join(parentPath, module.moduleName).replace(/\\/g, '/');
+    const moduleDocFile = path.join(this.modulesDir, parentPath, `${module.moduleName}.md`);
+    const fromDir = path.dirname(moduleDocFile);
 
-## 描述
+    const apiList = module.apis.map(api => {
+        const toFile = path.join(this.apisDir, modulePath, `${api.apiName}.md`);
+        const relativeLink = path.relative(fromDir, toFile).replace(/\\/g, '/');
+        return `- [${api.apiName}](${relativeLink})`;
+    }).join('\n');
 
-${module.description}
+    let subModuleList = '';
+    if (module.subModules && module.subModules.length > 0) {
+      subModuleList = '\n\n## 子模块列表\n\n' + module.subModules.map(subModule => {
+        return `- [${subModule.moduleName}](${module.moduleName}/${subModule.moduleName}.md)`;
+      }).join('\n');
+    }
 
-## API列表
-
-${module.apis.map(api => `- [${api.displayName || api.apiName}](../apis/${module.moduleName}/${api.apiName}.md)`).join('\n')}
-`;
+    return `# ${module.moduleName}\n\n## 描述\n\n${module.description}\n\n## API列表\n\n${apiList}${subModuleList}`;
   }
 
   async generateApiDoc(apiId) {
-    // 获取API数据
     const api = await this.storage.getApi(apiId);
     if (!api) {
       throw new Error(`API不存在: ${apiId}`);
     }
-    
-    // 获取模块数据（用于导航链接）
+
     const module = await this.storage.getModule(api.moduleId);
     if (!module) {
       throw new Error(`模块不存在: ${api.moduleId}`);
     }
-    
-    // 生成API文档
-    const markdown = this.generateApiMarkdown(api, module);
-    
-    // 确保模块的API目录存在
-    const moduleApiDir = path.join(this.apisDir, module.moduleName);
+
+    const modulePath = await this.getModulePath(module.moduleId);
+    const markdown = this.generateApiMarkdown(api, module, modulePath);
+    const moduleApiDir = path.join(this.apisDir, modulePath);
     await fs.mkdir(moduleApiDir, { recursive: true });
-    
-    // 写入文件
+
     const docFile = path.join(moduleApiDir, `${api.apiName}.md`);
     await fs.writeFile(docFile, markdown);
-    
+
     return docFile;
   }
 
-  generateApiMarkdown(api, module) {
-    return `# ${api.displayName || api.apiName}
-
-**模块:** [${module.displayName || module.moduleName}](../../modules/${module.moduleName})
-
-## 函数声明
-
-\`\`\`
-${api.functionDeclaration}
-\`\`\`
-
-## 描述
-
-${api.description}
-`;
+  generateApiMarkdown(api, module, modulePath) {
+    const relativeModulePath = path.relative(path.join(this.apisDir, modulePath), this.modulesDir).replace(/\\/g, '/');
+    const lines = [
+      `# ${api.apiName}`,
+      '',
+      `**模块:** [${module.moduleName}](${relativeModulePath}/${modulePath}.md)`,
+      '',
+      '## 函数声明',
+      '',
+      '```',
+      api.functionDeclaration,
+      '```',
+      '',
+      '## 描述',
+      '',
+      api.description,
+    ];
+    return lines.join('\n');
   }
 
   async updateIndexPage() {
-    // 获取所有模块
-    const modules = await this.storage.listModules();
-    
-    // 生成索引页内容
-    const markdown = this.generateIndexMarkdown(modules);
-    
-    // 写入文件
+    const modules = await this.storage.listModules({ isRoot: true });
+    const markdown = await this.generateIndexMarkdown(modules, 0);
+
     const indexFile = path.join(this.docsDir, 'index.md');
     await fs.writeFile(indexFile, markdown);
-    
+
     return indexFile;
   }
 
-  generateIndexMarkdown(modules) {
-    return `# API文档
+  async generateIndexMarkdown(modules, level) {
+    let markdown = '';
+    const indent = '  '.repeat(level);
 
-## 模块列表
+    for (const moduleInfo of modules) {
+      const module = await this.storage.getModule(moduleInfo.moduleId);
+      if (!module) continue;
 
-${modules.map(module => `- [${module.displayName || module.moduleName}](modules/${module.moduleName})`).join('\n')}
-`;
+      const modulePath = await this.getModulePath(module.moduleId);
+      markdown += `${indent}- [${module.moduleName}](modules/${modulePath}.md)\n`;
+
+      if (module.subModules && module.subModules.length > 0) {
+        const subModulesInfo = module.subModules.map(sm => ({ moduleId: sm.moduleId, moduleName: sm.moduleName }));
+        markdown += await this.generateIndexMarkdown(subModulesInfo, level + 1);
+      }
+    }
+    if (level === 0) {
+        return `# API文档\n\n## 模块列表\n\n${markdown}`;
+    }
+
+    return markdown;
+  }
+
+  async getModulePath(moduleId) {
+    const module = await this.storage.getModule(moduleId);
+    if (!module) return '';
+
+    if (module.parentModuleId) {
+        const parentPath = await this.getModulePath(module.parentModuleId);
+        return path.join(parentPath, module.moduleName);
+    }
+    return module.moduleName;
   }
 }
 

@@ -20,13 +20,26 @@ class SyncEngine {
       // 加锁
       this.syncLocks.set(moduleId, true);
       
+      // 获取模块信息
+      const module = await this.storage.getModule(moduleId);
+      if (!module) {
+        throw new Error(`模块不存在: ${moduleId}`);
+      }
+      
       // 同步模块文档
       await this.docGen.generateModuleDoc(moduleId);
       
       // 同步模块下的所有API文档
-      const module = await this.storage.getModule(moduleId);
       for (const api of module.apis) {
         await this.syncApi(api.apiId);
+      }
+      
+      // 同步子模块
+      if (module.subModules && module.subModules.length > 0) {
+        for (const subModule of module.subModules) {
+          // 递归同步子模块
+          await this.syncModule(subModule.moduleId);
+        }
       }
       
       return true;
@@ -57,14 +70,13 @@ class SyncEngine {
   }
 
   async syncAll() {
-    // 同步所有模块和API
-    const modules = await this.storage.listModules();
+    // 获取所有顶级模块
+    const modules = await this.storage.listModules({ isRoot: true });
+    
+    // 同步每个顶级模块（子模块会在syncModule中递归同步）
     for (const module of modules) {
       await this.syncModule(module.moduleId);
     }
-    
-    // 更新索引页
-    await this.docGen.updateIndexPage();
     
     return true;
   }

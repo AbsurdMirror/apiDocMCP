@@ -13,7 +13,7 @@ const { spawn } = require('child_process');
 const path = require('path');
 
 // 配置参数
-const serverPath = path.join(__dirname, 'src', 'index.js').replace(/\\/g, '/');
+const serverPath = path.join(__dirname, '..', 'src', 'index.js').replace(/\\/g, '/');
 const inspectorCommand = 'npx';
 const inspectorArgs = [
   '@modelcontextprotocol/inspector',
